@@ -8,15 +8,28 @@ questionsRouter.use(bodyParser.json());
 
 // get all question
 questionsRouter.get('/questions', async (req, res) => {
-    const { data, error } = await supabase
+    // Fetch questions with their associated tags
+    const { data: questions, error: questionsError } = await supabase
         .from('questions')
-        .select('*');
+        .select(`
+            *,
+            questiontags (
+                tag_id,
+                tags (tag_name)
+            )
+        `);
 
-    if (error) {
-        return res.status(500).json({ error: error.message });
+    if (questionsError) {
+        return res.status(500).json({ error: questionsError.message });
     }
 
-    res.json(data);
+    // Transform the data to include tags as an array of tag names
+    const formattedQuestions = questions.map(question => ({
+        ...question,
+        tags: question.questiontags.map(qt => qt.tags.tag_name)
+    }));
+
+    res.json(formattedQuestions);
 });
 
 // get a question
@@ -142,42 +155,50 @@ questionsRouter.post('/questions', async (req, res) => {
     }
 
     for (const tag_name of tags) {
+        console.log('Processing tag:', tag_name);
+    
         let { data: tagData, error: tagError } = await supabase
             .from('tags')
             .select('tag_id')
             .eq('tag_name', tag_name)
             .single();
-
+    
         if (tagError) {
-            return res.status(500).json({ error: tagError.message });
+            console.error('Tag retrieval error:', tagError);
+            // return res.status(500).json({ error: tagError.message });
         }
 
+        console.log(tagData)
         if (!tagData) {
+            console.log('Tag not found, inserting:', tag_name);
             const { data: newTagData, error: newTagError } = await supabase
                 .from('tags')
                 .insert([{ tag_name }])
                 .select()
                 .single();
-
+    
             if (newTagError) {
+                console.error('New tag insertion error:', newTagError);
                 return res.status(500).json({ error: newTagError.message });
             }
-
+    
             tagData = newTagData;
         }
-
+    
+        console.log('Linking tag to question:', tagData.tag_id);
         const { error: questionTagError } = await supabase
             .from('questiontags')
             .insert([{
                 question_id,
                 tag_id: tagData.tag_id
             }]);
-
+    
         if (questionTagError) {
+            console.error('Question-Tag linking error:', questionTagError);
             return res.status(500).json({ error: questionTagError.message });
         }
-    }
-
+    }  
+    // return res.status(500).json({ error: questionTagError.message });
     res.status(201).json({ question_id });
 });
 
